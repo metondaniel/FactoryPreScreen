@@ -1,0 +1,5 @@
+Product Name,State,Sales,Profit,Discount,Returned
+Alpha,CA,100,-10,0.1,Yes
+Alpha,CA,200,-20,0.3,Not
+Beta,NY,300,-5,0.5,Yes
+Beta,NY,400,-5,0.3,Yes

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>impinj-sales-assessment</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sales.Application/Sales.Application.csproj" />
+    <ProjectReference Include="../Sales.Infrastructure/Sales.Infrastructure.csproj" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.3.2" />
+  </ItemGroup>
+</Project>
