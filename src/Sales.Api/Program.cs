@@ -12,7 +12,7 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = UploadLimits.MaxRequestBytes;
 });
 builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = UploadLimits.MaxRequestBytes);
-builder.Services.AddApiSecurity(builder.Configuration);
+builder.Services.AddUploadProtection();
 builder.Services.AddSalesSwagger();
 builder.Services.AddScoped<ISalesRecordReader, CsvSalesRecordReader>();
 builder.Services.AddScoped<SalesAnalyzer>();
@@ -32,13 +32,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(options =>
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "Sales Analysis API v1");
-        options.ConfigObject.PersistAuthorization = false;
     });
 }
 app.UseRouting();
 app.UseRateLimiter();
-app.UseAuthentication();
-app.UseAuthorization();
 app.MapControllers();
 app.Run();
 

@@ -15,7 +15,6 @@ public sealed class RequestProtectionMiddleware(RequestDelegate next, IWebHostEn
             return Task.CompletedTask;
         });
 
-        // Reject rather than redirect: a redirect cannot protect a key already sent in plaintext.
         if (!environment.IsDevelopment() && !context.Request.IsHttps)
         {
             await Results.Problem(statusCode: 400, title: "HTTPS required",

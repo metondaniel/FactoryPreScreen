@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Sales.Api.Security;
@@ -8,7 +7,6 @@ using Sales.Domain;
 namespace Sales.Api;
 
 [ApiController]
-[Authorize]
 [EnableRateLimiting(UploadLimits.ConcurrencyPolicy)]
 [Route("api/sales/analysis")]
 public sealed class SalesAnalysisController(AnalyzeSalesFile analyzeSalesFile) : ControllerBase
@@ -18,7 +16,6 @@ public sealed class SalesAnalysisController(AnalyzeSalesFile analyzeSalesFile) :
     [Consumes("multipart/form-data")]
     [ProducesResponseType<SalesAnalysis>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status415UnsupportedMediaType)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]

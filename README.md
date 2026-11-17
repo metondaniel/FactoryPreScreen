@@ -11,45 +11,21 @@ dotnet restore ImpinjAssessment.sln
 dotnet test ImpinjAssessment.sln
 ```
 
-Configure a secret before starting the API. There is no built-in key or development authentication bypass.
-For example, generate a random 256-bit key in PowerShell for the current terminal session:
+Start the API:
 
 ```powershell
-$keyBytes = New-Object byte[] 32
-$generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$generator.GetBytes($keyBytes)
-$generator.Dispose()
-$env:Security__ApiKey = [BitConverter]::ToString($keyBytes).Replace('-', '')
-dotnet dev-certs https --trust
 dotnet run --project src/Sales.Api
 ```
 
-The existing launch profile uses Development and preserves the local ports:
-https://localhost:58555 and http://localhost:58556. The browser launch target is `/swagger`.
-Open **https://localhost:58555/swagger**, click **Authorize**, enter the value of `Security__ApiKey`,
-then select the CSV in **Try it out** for `POST /api/sales/analysis`.
-The key is sent as `X-API-Key`; Swagger does not persist it across browser reloads.
+Open **http://localhost:58556/swagger**, expand `POST /api/sales/analysis` and select
+**Try it out**. Choose `Input/SalesOrders.csv` in the `file` field and click **Execute**.
+The endpoint accepts requests without an API key.
 
-To retain a local development key across terminals, store it in .NET user-secrets:
+For a command-line upload:
 
 ```powershell
-dotnet user-secrets set "Security:ApiKey" "$env:Security__ApiKey" --project src/Sales.Api
+curl.exe -X POST http://localhost:58556/api/sales/analysis -F "file=@Input/SalesOrders.csv"
 ```
-
-User-secrets is a local development convenience, not an encrypted production secret store.
-In production, inject `Security__ApiKey` from the deployment's secret manager. Keys must have 32–128
-printable ASCII characters without spaces. Generate random keys; length validation is not an entropy test.
-Do not put actual keys in source control, URLs, launchSettings.json or appsettings.json.
-The test project has an isolated test credential; it is never registered as a runtime default.
-
-For a command-line upload, use a terminal with the same environment variable:
-
-```powershell
-curl.exe -X POST https://localhost:58555/api/sales/analysis -H "X-API-Key: $env:Security__ApiKey" -F "file=@Input/SalesOrders.csv"
-```
-
-Use a trusted HTTPS certificate rather than disabling certificate checks. Tests configure their own key
-and in-memory server, so running them does not require changing user-secrets or trusting a certificate.
 
 ## Contract
 
@@ -81,7 +57,6 @@ Response for the included 3,024-row sample:
 The last few digits of the standard deviation may vary with floating-point arithmetic.
 Missing uploads, empty files, missing required columns, malformed rows and invalid required values
 return HTTP 400 with Problem Details. A non-multipart request returns HTTP 415.
-Authentication is mandatory. Missing or invalid keys return HTTP 401.
 Oversized uploads return HTTP 413; exhausted rate/concurrency limits return HTTP 429.
 Malformed multipart requests can be rejected by the framework with HTTP 400.
 A file is limited to 5 MiB; the whole request allows an additional 64 KiB for multipart headers.
@@ -151,15 +126,10 @@ Expected sample results were also calculated independently using Python's csv, D
 
 ## Security and documentation
 
-- **Authentication:** X-API-Key using ASP.NET Core authentication/authorization, with a deny-by-default
-  fallback policy. Missing/invalid configuration prevents startup. Comparisons use fixed-time SHA-256 hash
-  comparisons; credentials are not placed in claims or response bodies. This is one service credential,
-  not user accounts, per-user permissions or a JWT identity system.
 - **Transport:** outside Development, HTTP is rejected before reading the upload; HTTPS responses use HSTS.
   Bind production to HTTPS only. Configure trusted reverse proxies explicitly if terminating TLS upstream;
   arbitrary X-Forwarded-Proto headers are not trusted by this application.
-- **Resource limits:** 30 requests per one-minute fixed window across each API process, including failed
-  authentication attempts; at most two simultaneous analysis requests; no queue. These are per-instance
+- **Resource limits:** 30 requests per one-minute fixed window across each API process; at most two simultaneous analysis requests; no queue. These are per-instance
   limits, not a distributed limiter or a DDoS protection service. A gateway must enforce shared limits if scaled out.
 - **Uploads:** one non-empty .csv file, maximum 5 MiB. Kestrel and IIS hosting body limits, a Content-Length
   check and multipart limits bound requests. Multipart buffers up to the request limit stay in memory.
@@ -168,15 +138,12 @@ Expected sample results were also calculated independently using Python's csv, D
 - **Responses:** no-store, nosniff, frame denial, a restrictive API Content-Security-Policy and no-referrer.
   Unexpected errors return generic Problem Details instead of stack traces. No permissive CORS policy is enabled.
 - **Swagger:** UI and the OpenAPI document are enabled only in Development. The upload uses inferred
-  IFormFile binding, which lets Swagger generate the binary multipart field correctly. The Authorize
-  control supplies the API key to the protected endpoint.
+  IFormFile binding, which lets Swagger generate the binary multipart field correctly.
 
-Security tests cover credentials, startup validation, Swagger schema/UI, production behavior, untrusted
+Security tests cover Swagger schema/UI, production behavior, untrusted
 forwarded headers, upload sizes, duplicate uploads, invalid extensions, rate/concurrency limits and error redaction.
 
 Implementation references:
 - https://learn.microsoft.com/aspnet/core/performance/rate-limit?view=aspnetcore-10.0
 - https://learn.microsoft.com/aspnet/core/mvc/models/file-uploads?view=aspnetcore-10.0
 - https://github.com/domaindrivendev/Swashbuckle.AspNetCore
-
-Review validation: build completed with zero warnings/errors; all 60 xUnit tests passed through dotnet test.

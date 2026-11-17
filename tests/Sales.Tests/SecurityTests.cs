@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Options;
 using Sales.Api.Security;
 using Sales.Application;
 using Sales.Domain;
@@ -18,54 +17,8 @@ public sealed class SecurityTests
 {
     private const string Csv = "Product Name,State,Sales,Profit,Discount,Returned\nA,CA,1,0,0,Not";
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("wrong")]
-    [InlineData("wrong-but-long-enough-key-0123456789012345")]
-    public async Task Missing_or_wrong_key_returns_401(string? key)
-    {
-        using var factory = new ApiFactory();
-        using var client = factory.CreateClient();
-        if (key is not null) client.DefaultRequestHeaders.Add("X-API-Key", key);
-        using var form = Upload();
-        using var response = await client.PostAsync("/api/sales/analysis", form);
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal("ApiKey", response.Headers.WwwAuthenticate.Single().Scheme);
-    }
-
     [Fact]
-    public async Task Duplicate_key_headers_are_rejected()
-    {
-        using var factory = new ApiFactory();
-        using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.TryAddWithoutValidation("X-API-Key", [ApiFactory.TestKey, ApiFactory.TestKey]);
-        using var form = Upload();
-        using var response = await client.PostAsync("/api/sales/analysis", form);
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Key_in_query_string_is_not_accepted()
-    {
-        using var factory = new ApiFactory();
-        using var client = factory.CreateClient();
-        using var form = Upload();
-        using var response = await client.PostAsync("/api/sales/analysis?apiKey=" + ApiFactory.TestKey, form);
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("short")]
-    [InlineData("a key containing spaces is not accepted")]
-    public void Server_refuses_to_start_without_a_valid_secret(string key)
-    {
-        using var factory = new ApiFactory { ConfiguredKey = key };
-        Assert.Throws<OptionsValidationException>(() => factory.CreateClient());
-    }
-
-    [Fact]
-    public async Task Swagger_exposes_file_upload_and_api_key_authorization_in_development()
+    public async Task Swagger_exposes_file_upload_without_authorization_in_development()
     {
         using var factory = new ApiFactory();
         using var client = factory.CreateClient();
@@ -73,22 +26,16 @@ public sealed class SecurityTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var document = json.RootElement;
-        var scheme = document.GetProperty("components").GetProperty("securitySchemes").GetProperty("ApiKey");
-        Assert.Equal("apiKey", scheme.GetProperty("type").GetString());
-        Assert.Equal("header", scheme.GetProperty("in").GetString());
-        Assert.Equal("X-API-Key", scheme.GetProperty("name").GetString());
-        Assert.True(document.GetProperty("security")[0].TryGetProperty("ApiKey", out _));
+        Assert.False(document.TryGetProperty("security", out _));
+        if (document.TryGetProperty("components", out var components))
+            Assert.False(components.TryGetProperty("securitySchemes", out _));
         var operation = document.GetProperty("paths").GetProperty("/api/sales/analysis").GetProperty("post");
         var file = operation.GetProperty("requestBody").GetProperty("content").GetProperty("multipart/form-data")
             .GetProperty("schema").GetProperty("properties").GetProperty("file");
         Assert.Equal("binary", file.GetProperty("format").GetString());
-        Assert.True(operation.GetProperty("responses").TryGetProperty("401", out _));
+        Assert.False(operation.GetProperty("responses").TryGetProperty("401", out _));
         var ui = await client.GetStringAsync("/swagger/index.html");
         Assert.Contains("swagger-ui", ui);
-        var initializationScript = await client.GetStringAsync("/swagger/index.js");
-        Assert.Contains("\"persistAuthorization\":false", initializationScript);
-        Assert.DoesNotContain(ApiFactory.TestKey, initializationScript);
-        Assert.DoesNotContain(ApiFactory.TestKey, ui);
     }
 
     [Theory]
@@ -97,7 +44,7 @@ public sealed class SecurityTests
     public async Task Swagger_is_unavailable_in_production(string path)
     {
         using var factory = new ApiFactory { EnvironmentName = "Production" };
-        using var client = factory.CreateAuthenticatedClient();
+        using var client = factory.CreateHttpsClient();
         using var response = await client.GetAsync(path);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -111,7 +58,6 @@ public sealed class SecurityTests
             BaseAddress = new Uri("http://example.test"),
             AllowAutoRedirect = false
         });
-        client.DefaultRequestHeaders.Add("X-API-Key", ApiFactory.TestKey);
         client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
         using var form = Upload();
         using var response = await client.PostAsync("/api/sales/analysis", form);
@@ -124,7 +70,7 @@ public sealed class SecurityTests
     public async Task Production_https_succeeds_and_sets_security_headers()
     {
         using var factory = new ApiFactory { EnvironmentName = "Production" };
-        using var client = factory.CreateAuthenticatedClient();
+        using var client = factory.CreateHttpsClient();
         using var form = Upload();
         using var response = await client.PostAsync("/api/sales/analysis", form);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -141,7 +87,7 @@ public sealed class SecurityTests
     public async Task Oversized_file_or_request_returns_413(int length)
     {
         using var factory = new ApiFactory();
-        using var client = factory.CreateAuthenticatedClient();
+        using var client = factory.CreateHttpsClient();
         using var form = new MultipartFormDataContent();
         form.Add(new ByteArrayContent(new byte[length]), "file", "large.csv");
         using var response = await client.PostAsync("/api/sales/analysis", form);
@@ -152,7 +98,7 @@ public sealed class SecurityTests
     public async Task Multiple_files_are_rejected()
     {
         using var factory = new ApiFactory();
-        using var client = factory.CreateAuthenticatedClient();
+        using var client = factory.CreateHttpsClient();
         using var form = Upload();
         form.Add(new StringContent(Csv), "other", "second.csv");
         using var response = await client.PostAsync("/api/sales/analysis", form);
@@ -165,14 +111,14 @@ public sealed class SecurityTests
     public async Task Unsupported_extensions_are_rejected(string name)
     {
         using var factory = new ApiFactory();
-        using var client = factory.CreateAuthenticatedClient();
+        using var client = factory.CreateHttpsClient();
         using var form = Upload(name);
         using var response = await client.PostAsync("/api/sales/analysis", form);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task Rate_limit_includes_unauthenticated_attempts()
+    public async Task Rate_limit_rejects_the_thirty_first_request()
     {
         using var factory = new ApiFactory();
         using var client = factory.CreateClient();
@@ -180,7 +126,7 @@ public sealed class SecurityTests
         {
             using var form = Upload();
             using var response = await client.PostAsync("/api/sales/analysis", form);
-            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
         using var rejectedForm = Upload();
         using var rejected = await client.PostAsync("/api/sales/analysis", rejectedForm);
@@ -198,14 +144,12 @@ public sealed class SecurityTests
             services.AddSingleton<ISalesRecordReader, FailingReader>();
         }));
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://example.test") });
-        client.DefaultRequestHeaders.Add("X-API-Key", ApiFactory.TestKey);
         using var form = Upload();
         using var response = await client.PostAsync("/api/sales/analysis", form);
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.DoesNotContain("sensitive-test-marker", body);
         Assert.DoesNotContain("Exception", body);
-        Assert.DoesNotContain(ApiFactory.TestKey, body);
     }
 
     [Fact]
@@ -219,7 +163,6 @@ public sealed class SecurityTests
             services.AddSingleton<ISalesRecordReader>(reader);
         }));
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-API-Key", ApiFactory.TestKey);
         using var firstForm = Upload();
         using var secondForm = Upload();
         var first = Task.Run(() => client.PostAsync("/api/sales/analysis", firstForm));
